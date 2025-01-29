@@ -147,6 +147,7 @@ app_args_parse(int argc, char **argv)
 
 		case 'f':
 			app.enable_feature_arc = true;
+			printf("Feature arc is enabled from command line\n");
 			break;
 
 		case 'H':

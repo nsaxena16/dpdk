@@ -421,16 +421,21 @@ rte_node_max_count(void)
 }
 
 int
-node_override_process_func(rte_node_t id, rte_node_process_t process)
+node_override_process_func(rte_node_t id, rte_node_process_t process, bool is_start_node,
+			   const char *arc_name)
 {
 	struct node *node;
 
+	RTE_SET_USED(process);
 	NODE_ID_CHECK(id);
 	graph_spinlock_lock();
 
 	STAILQ_FOREACH(node, &node_list, next) {
 		if (node->id == id) {
-			node->process = process;
+			rte_strscpy(node->finfo.arc_name, arc_name, RTE_NODE_NAMESIZE);
+			node->finfo.flags |= NODE_F_ARC;
+			if (is_start_node)
+				node->finfo.flags |= NODE_F_ARC_START_NODE;
 			graph_spinlock_unlock();
 			return 0;
 		}

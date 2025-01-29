@@ -16,6 +16,7 @@
 
 #include "graph_private.h"
 #include "graph_pcap_private.h"
+#include "graph_feature_nodes.h"
 
 static struct graph_head graph_list = STAILQ_HEAD_INITIALIZER(graph_list);
 static rte_spinlock_t graph_lock = RTE_SPINLOCK_INITIALIZER;
@@ -65,6 +66,35 @@ graph_insert_ordered(struct graph *graph)
 	} else {
 		STAILQ_INSERT_AFTER(&graph_list, after, graph, next);
 	}
+}
+
+static uint16_t
+feature_arc_start_node_process(struct rte_graph *graph, struct rte_node *node,
+			       void **objs, uint16_t nb_objs)
+{
+	struct rte_graph_feature_arc *arc =
+		(struct rte_graph_feature_arc *)node->feature_arc_ptr;
+
+	RTE_SET_USED(objs);
+	RTE_SET_USED(nb_objs);
+
+	if (rte_graph_feature_arc_is_any_feature_enabled(arc))
+		return feature_arc_node_process(graph, node, objs, nb_objs,
+						1 /* start_node */,
+						1 /* feature maybe enabled*/);
+	else
+		return feature_arc_node_process(graph, node, objs, nb_objs,
+						1 /* start_node */,
+						0 /* feature not enabled */);
+}
+
+static uint16_t
+feature_arc_non_start_node_process(struct rte_graph *graph, struct rte_node *node,
+				   void **objs, uint16_t nb_objs)
+{
+	return feature_arc_node_process(graph, node, objs, nb_objs,
+					0 /* non start node*/,
+					1 /* feature has to be enabled as this node is called */);
 }
 
 struct graph_head *
@@ -159,6 +189,163 @@ graph_node_edges_add(struct graph *graph)
 	return 0;
 fail:
 	return -rte_errno;
+}
+
+static int
+graph_arc_register_interim_nodes(struct graph *graph, struct node *parent)
+{
+	struct rte_node_register *reg;
+	rte_edge_t i, j, fi, nb_edges;
+	char name[RTE_NODE_NAMESIZE];
+	struct node *child = NULL;
+	char **next_names;
+	size_t sz;
+
+	RTE_SET_USED(graph);
+
+	if (parent->finfo.flags & NODE_F_ARC_REVISITED)
+		return 0;
+
+	/* Depth first search */
+	for (i = 0; i < parent->nb_edges; i++) {
+		child = node_from_name(parent->next_nodes[i]);
+
+		if (!(child->finfo.flags & NODE_F_ARC))
+			continue;
+
+		if (!parent->finfo.num_feature_nodes)
+			parent->finfo.first_arc_enabled_next_index = i;
+
+		parent->finfo.num_feature_nodes++;
+
+		if (!(child->finfo.flags & NODE_F_ARC_REVISITED))
+			graph_arc_register_interim_nodes(graph, child);
+	}
+
+	parent->finfo.flags |= NODE_F_ARC_REVISITED;
+
+	if (!parent->finfo.num_feature_nodes ||
+	    !parent->nb_edges)
+		return 0;
+
+	/* feature node should at least have one non-feature child */
+	if (parent->nb_edges == parent->finfo.num_feature_nodes)
+		return 0;
+
+	fi = parent->finfo.first_arc_enabled_next_index;
+
+	/* 0th index + num_feature_nodes are nb_edges */
+	nb_edges = parent->finfo.num_feature_nodes + 1;
+
+	for(i = 0; i < fi; i++) {
+		reg = NULL;
+		snprintf(name, RTE_NODE_NAMESIZE, "%s-f%d", parent->name, i);
+
+		sz = sizeof(*reg) + (sizeof(char *) * nb_edges);
+		reg = calloc(1, sz);
+		if (!reg)
+			SET_ERR_JMP(ENOMEM, free_reg, "Failed to malloc %s node_reg",
+				    name);
+
+		next_names= calloc(nb_edges, sizeof(char *));
+		if (!next_names)
+			SET_ERR_JMP(ENOMEM, free_name_arr, "Failed to malloc %s next_names",
+				    name);
+
+		for (j = 0; j < nb_edges; j++) {
+			next_names[j] = calloc(1, (RTE_NODE_NAMESIZE + 1));
+			if (!next_names[j])
+				SET_ERR_JMP(ENOMEM, free_name_arr_mem, "Failed to malloc %s next_names[%u]",
+					    name, j);
+		}
+
+		reg->nb_edges = nb_edges;
+
+		if (parent->finfo.flags & NODE_F_ARC_START_NODE)
+			reg->process = feature_arc_start_node_process;
+		else
+			reg->process = feature_arc_non_start_node_process;
+
+		reg->init = feature_arc_interim_node_init;
+		rte_strscpy(reg->name, name, RTE_NODE_NAMESIZE);
+
+		for (j = 0; j < nb_edges; j++) {
+			if (j) {
+				rte_strscpy(next_names[j],
+					    parent->next_nodes[fi + j - 1],
+					    RTE_NODE_NAMESIZE);
+				reg->next_nodes[j] = next_names[j];
+			} else {
+				rte_strscpy(next_names[0], parent->next_nodes[i],
+					    RTE_NODE_NAMESIZE);
+				reg->next_nodes[0] = next_names[0];
+			}
+		}
+
+		/* register new node */
+		graph_spinlock_unlock();
+		reg->id = __rte_node_register(reg);
+		graph_spinlock_lock();
+
+		if (reg->id == RTE_NODE_ID_INVALID)
+			SET_ERR_JMP(ENOMEM, free_reg, "Failed to register %s object",
+				    name);
+
+		/* Hook child to parent node */
+		rte_strscpy(parent->next_nodes[i], reg->name, RTE_NODE_NAMESIZE);
+
+		/* setup child node */
+		child = node_from_name(reg->name);
+		if (!child)
+			SET_ERR_JMP(ENOMEM, free_name_arr_mem, "Failed to get %s registered node",
+				    name);
+		/* graph add  */
+		if(graph_node_add(graph, child))
+			SET_ERR_JMP(ENOMEM, free_name_arr_mem, "Failed to add %s node to graph",
+				    name);
+
+		rte_strscpy(child->finfo.arc_name, parent->finfo.arc_name, RTE_NODE_NAMESIZE);
+		child->finfo.first_arc_enabled_next_index = 1;
+		child->finfo.fp_adjust_index = fi -1;
+		child->finfo.num_feature_nodes = nb_edges - 1;
+		child->finfo.flags = NODE_F_ARC_INTERIM_NODE;
+
+		for (j = 0; j < nb_edges; j++)
+			free(next_names[j]);
+		free(next_names);
+		free(reg);
+	}
+
+	return 0;
+
+free_name_arr_mem:
+	for (j = 0; j < nb_edges; j++)
+		free(next_names[j]);
+free_name_arr:
+	free(next_names);
+free_reg:
+	free(reg);
+
+	return -rte_errno;
+}
+
+static int
+graph_node_add_with_arc(struct graph *graph)
+{
+	struct graph_node *graph_node;
+	struct node *parent;
+
+	STAILQ_FOREACH(graph_node, &graph->node_list, next) {
+		parent = graph_node->node;
+		if (!(parent->finfo.flags & NODE_F_ARC))
+			continue;
+
+		if (!(parent->finfo.flags & NODE_F_ARC_START_NODE))
+			continue;
+
+		graph_arc_register_interim_nodes(graph, parent);
+	}
+	return 0;
 }
 
 static int
@@ -387,6 +574,9 @@ rte_graph_create(const char *name, struct rte_graph_param *prm)
 	const char *pattern;
 	uint16_t i;
 
+	if (prm && prm->feature_arc_enable)
+		rte_graph_feature_arc_init();
+
 	graph_spinlock_lock();
 
 	/* Check arguments sanity */
@@ -418,6 +608,11 @@ rte_graph_create(const char *name, struct rte_graph_param *prm)
 		if (expand_pattern_to_node(graph, pattern))
 			goto graph_cleanup;
 	}
+
+	/* Go over all nodes and add nodes with feature arc enabled */
+	if (prm->feature_arc_enable)
+		if (graph_node_add_with_arc(graph))
+			goto graph_cleanup;
 
 	/* Go over all the nodes edges and add them to the graph */
 	if (graph_node_edges_add(graph))

@@ -266,9 +266,6 @@ cmd_graph_start_parsed(__rte_unused void *parsed_result, __rte_unused struct cmd
 	uint32_t nb_graphs = 0, nb_conf, i;
 	int rc = -EINVAL;
 
-	if (app_graph_feature_arc_enabled())
-		rte_graph_feature_arc_init();
-
 	conf = graph_rxtx_node_config_get(&nb_conf, &nb_graphs);
 	for (i = 0; i < MAX_GRAPH_USECASES; i++) {
 		if (!strcmp(graph_config.usecases[i].name, "l3fwd")) {

@@ -52,6 +52,9 @@ l3fwd_pattern_configure(void)
 	graph_conf.pcap_enable = pcap_ena;
 	graph_conf.num_pkt_to_capture = pcap_pkts_count;
 	graph_conf.pcap_filename = strdup(pcap_file);
+	graph_conf.feature_arc_enable = false;
+	if (app_graph_feature_arc_enabled())
+		graph_conf.feature_arc_enable = true;
 
 	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
 		rte_graph_t graph_id;
