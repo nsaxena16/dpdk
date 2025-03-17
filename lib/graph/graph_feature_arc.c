@@ -819,7 +819,9 @@ rte_graph_feature_arc_create(struct rte_graph_feature_arc_register *reg,
 	memset(arc->feature_bit_mask_by_index, 0, sizeof(uint64_t) * reg->max_indexes);
 
 	/* override process function with start_node */
-	if (node_override_process_func(reg->start_node->id, reg->start_node_feature_process_fn)) {
+	if (node_override_process_func(reg->start_node->id,
+				       reg->start_node_feature_process_fn, true,
+				       reg->arc_name)) {
 		graph_err("node_override_process_func failed for %s", reg->start_node->name);
 		rte_free(arc->feature_bit_mask_by_index);
 		rte_memzone_free(mz);
@@ -1070,12 +1072,13 @@ rte_graph_feature_add(struct rte_graph_feature_register *freg)
 						STAILQ_INSERT_HEAD(&arc->all_features, finfo,
 								   next_feature);
 
-					/* override node process fn */
+					/* override node_process_fn */
 					rc = node_override_process_func(finfo->feature_node_id,
-									freg->feature_process_fn);
-
+									freg->feature_process_fn,
+									false,
+									arc->feature_arc_name);
 					if (rc < 0) {
-						graph_err("node_override_process_func failed for %s",
+						graph_err("node_override_func failed for %s",
 							  freg->feature_name);
 						goto finfo_free;
 					}
@@ -1089,7 +1092,9 @@ rte_graph_feature_add(struct rte_graph_feature_register *freg)
 		}
 	}
 	/* override node_process_fn */
-	rc = node_override_process_func(finfo->feature_node_id, freg->feature_process_fn);
+	rc = node_override_process_func(finfo->feature_node_id,
+					freg->feature_process_fn, false,
+					arc->feature_arc_name);
 	if (rc < 0) {
 		graph_err("node_override_process_func failed for %s", freg->feature_name);
 		goto finfo_free;

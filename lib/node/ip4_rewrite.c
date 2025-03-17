@@ -464,7 +464,7 @@ ip4_rewrite_feature_node_process(struct rte_graph *graph, struct rte_node *node,
 	if (unlikely(rte_graph_feature_arc_is_any_feature_enabled(arc) &&
 		     (port_to_next_index_diff > 0)))
 		return __ip4_rewrite_node_process(graph, node, objs, nb_objs, dyn,
-						  1 /* check features */, feat_dyn, arc);
+						  0 /* check features */, feat_dyn, arc);
 
 	return __ip4_rewrite_node_process(graph, node, objs, nb_objs, dyn,
 					  0/* don't check features*/,

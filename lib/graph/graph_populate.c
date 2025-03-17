@@ -11,6 +11,8 @@
 #include "graph_private.h"
 #include "graph_pcap_private.h"
 
+#include <rte_graph_feature_arc_worker.h>
+
 static size_t
 graph_fp_mem_calc_size(struct graph *graph)
 {
@@ -76,6 +78,7 @@ graph_nodes_populate(struct graph *_graph)
 	rte_graph_off_t xstat_off = _graph->xstats_start;
 	rte_graph_off_t off = _graph->nodes_start;
 	struct rte_graph *graph = _graph->graph;
+	rte_graph_feature_arc_t arc_handle;
 	struct graph_node *graph_node;
 	rte_edge_t count, nb_edges;
 	const char *parent;
@@ -97,6 +100,16 @@ graph_nodes_populate(struct graph *_graph)
 			parent = rte_node_id_to_name(pid);
 			memcpy(node->parent, parent, RTE_GRAPH_NAMESIZE);
 		}
+		if ((graph_node->node->finfo.flags & NODE_F_ARC) ||
+		    (graph_node->node->finfo.flags & NODE_F_ARC_INTERIM_NODE))
+			if (rte_graph_feature_arc_lookup_by_name(graph_node->node->finfo.arc_name,
+								 &arc_handle) == 0) {
+				node->feature_arc_ptr =
+					(void *)rte_graph_feature_arc_get(arc_handle);
+				node->base_arc_next_edge =
+					graph_node->node->finfo.fp_adjust_index;
+			}
+
 		node->id = graph_node->node->id;
 		node->parent_id = pid;
 		node->dispatch.lcore_id = graph_node->node->lcore_id;

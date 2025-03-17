@@ -161,6 +161,7 @@ struct rte_graph_param {
 	/**< Array of node patterns based on shell pattern. */
 
 	bool pcap_enable; /**< Pcap enable. */
+	bool feature_arc_enable; /**< feature arc enable. */
 	uint64_t num_pkt_to_capture; /**< Number of packets to capture. */
 	char *pcap_filename; /**< Filename in which packets to be captured.*/
 

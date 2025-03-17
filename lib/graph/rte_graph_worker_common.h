@@ -116,6 +116,8 @@ struct __rte_cache_aligned rte_node {
 	/** Fast path area cache line 1. */
 	alignas(RTE_CACHE_LINE_MIN_SIZE)
 	rte_graph_off_t xstat_off; /**< Offset to xstat counters. */
+	void *feature_arc_ptr; /**< Feature arc ptr, if enabled */
+	rte_edge_t base_arc_next_edge; /**< Next edge of first feature child */
 
 	/** Fast path area cache line 2. */
 	__extension__ struct __rte_cache_aligned {

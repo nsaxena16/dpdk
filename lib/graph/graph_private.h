@@ -51,6 +51,29 @@ extern int rte_graph_logtype;
 /**
  * @internal
  *
+ * Enum to be set in feature_info.flags
+ */
+#define NODE_F_ARC                      0x1
+#define NODE_F_ARC_START_NODE           0x2
+#define NODE_F_ARC_INTERIM_NODE         0x4
+#define NODE_F_ARC_REVISITED            0x8
+
+/**
+ * @internal
+ *
+ * Structure that holds the node feature arc information
+ */
+struct feature_info {
+	uint32_t flags;      /** Internal node feature flags */
+	int first_arc_enabled_next_index; /**< Next node Index of first arc enabled node. */
+	int fp_adjust_index; /**< Index of the node to adjust the fast path. */
+	int num_feature_nodes; /**< Number of feature nodes. */
+	char arc_name[2 * RTE_NODE_NAMESIZE]; /**< Name of the arc node. */
+};
+
+/**
+ * @internal
+ *
  * Structure that holds node internal data.
  */
 struct node {
@@ -64,6 +87,7 @@ struct node {
 	rte_node_fini_t fini;	      /**< Node fini function. */
 	rte_node_t id;		      /**< Allocated identifier for the node. */
 	rte_node_t parent_id;	      /**< Parent node identifier. */
+	struct feature_info finfo; /**< Node feature information. */
 	rte_edge_t nb_edges;	      /**< Number of edges from this node. */
 	struct rte_node_xstats *xstats;	      /**< Node specific xstats. */
 	char next_nodes[][RTE_NODE_NAMESIZE]; /**< Names of next nodes. */
@@ -211,7 +235,8 @@ struct node *node_from_name(const char *name);
  *   - 0: Success.
  *   - <0: Error
  */
-int node_override_process_func(rte_node_t id, rte_node_process_t process);
+int node_override_process_func(rte_node_t id, rte_node_process_t process, bool is_start_node,
+			       const char *arc_name);
 
 /* Graph list functions */
 STAILQ_HEAD(graph_head, graph);
